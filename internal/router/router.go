@@ -34,6 +34,7 @@ const denialReaction = "-1"
 type Gitea interface {
 	ReadFile(ctx context.Context, owner, repo, path, ref string) ([]byte, bool, error)
 	CreateComment(ctx context.Context, owner, repo string, number int, body string) (int64, error)
+	UpdatePRBody(ctx context.Context, owner, repo string, number int, body string) error
 	CreateReaction(ctx context.Context, owner, repo string, commentID int64, reaction string) error
 	CurrentUser(ctx context.Context) (string, error)
 	UserPermission(ctx context.Context, owner, repo, user string) (string, error)
@@ -116,6 +117,13 @@ func (r *Router) Handle(ctx context.Context, evt webhook.Event) {
 		return
 	}
 
+	// A freshly opened pull request is not a command trigger: it is the moment to
+	// seed the description with the parameter block, if the repository opted in.
+	if evt.Kind == webhook.KindPROpened {
+		r.annotate(ctx, evt, spec)
+		return
+	}
+
 	matches := spec.Match(evt)
 	if len(matches) == 0 {
 		r.log.Debug("no command matched", "repo", evt.Repo.FullName)
@@ -164,6 +172,13 @@ func (r *Router) runCommand(ctx context.Context, evt webhook.Event, m contract.M
 
 	r.ack(ctx, evt, cmd)
 
+	// A tag event has no pull request, so there is no place to report build status
+	// back to: log the launch and skip the report waiter.
+	if evt.PR.Number == 0 {
+		r.log.Info("triggered from tag", "command", m.Name, "tag", evt.Tag, "target", target)
+		return
+	}
+
 	r.waiters.Submit(reportJob{
 		owner:   owner,
 		repo:    repo,
@@ -173,6 +188,35 @@ func (r *Router) runCommand(ctx context.Context, evt webhook.Event, m contract.M
 		ack:     cmd.Ack,
 		timeout: r.timeout,
 	})
+}
+
+// annotate seeds a newly opened pull request description with the synapse
+// parameter block, so the author sees which command params are configurable. It
+// is opt-in (annotate_pr), idempotent (skips a body that already has a block) and
+// posts nothing when no command exposes a param. The bot's own edit arrives as a
+// pull_request edited event, which is unsupported and so cannot loop.
+func (r *Router) annotate(ctx context.Context, evt webhook.Event, spec *contract.Spec) {
+	if !spec.AnnotatePR {
+		return
+	}
+	if build.HasSynapseBlock(evt.PR.Body) {
+		r.log.Debug("pull request already annotated", "repo", evt.Repo.FullName, "pr", evt.PR.Number)
+		return
+	}
+
+	block := build.AnnotationBlock(spec)
+	if block == "" {
+		return
+	}
+
+	body := block
+	if evt.PR.Body != "" {
+		body = evt.PR.Body + "\n\n" + block
+	}
+
+	if err := r.gitea.UpdatePRBody(ctx, evt.Repo.Owner, evt.Repo.Name, evt.PR.Number, body); err != nil {
+		r.log.Warn("annotate pull request", "repo", evt.Repo.FullName, "pr", evt.PR.Number, "error", err)
+	}
 }
 
 // ack places the acknowledgement reaction on the triggering comment, if the
@@ -200,6 +244,13 @@ func (r *Router) deny(ctx context.Context, evt webhook.Event, body string) {
 }
 
 func (r *Router) comment(ctx context.Context, evt webhook.Event, body string) {
+	// A tag event has no pull request to post to; surface the message in the log
+	// instead of attempting an invalid comment on PR number zero.
+	if evt.PR.Number == 0 {
+		r.log.Warn("no pull request to report to", "repo", evt.Repo.FullName, "detail", body)
+		return
+	}
+
 	if _, err := r.gitea.CreateComment(ctx, evt.Repo.Owner, evt.Repo.Name, evt.PR.Number, body); err != nil {
 		r.log.Warn("post comment", "repo", evt.Repo.FullName, "error", err)
 	}

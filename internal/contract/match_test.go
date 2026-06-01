@@ -30,6 +30,9 @@ commands:
       label: "publish"
     available_in: [pr_merged]
     job: j
+  deliver:
+    on_tag: "v*"
+    job: j
 `
 
 func matchedNames(matches []Match) []string {
@@ -106,6 +109,16 @@ func TestMatch(t *testing.T) {
 			name:  "merge without required label",
 			event: webhook.Event{Kind: webhook.KindMerge, State: webhook.StateMerged, Labels: nil},
 			want:  []string{"anymerge"},
+		},
+		{
+			name:  "tag matches glob without pr state",
+			event: webhook.Event{Kind: webhook.KindTag, Tag: "v1.2.3"},
+			want:  []string{"deliver"},
+		},
+		{
+			name:  "tag does not match glob",
+			event: webhook.Event{Kind: webhook.KindTag, Tag: "nightly"},
+			want:  nil,
 		},
 	}
 

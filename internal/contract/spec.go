@@ -30,6 +30,13 @@ type Spec struct {
 	Version  string             `yaml:"version"`
 	Defaults Defaults           `yaml:"defaults"`
 	Commands map[string]Command `yaml:"commands"`
+
+	// AnnotatePR opts the repository in to having Synapse append a synapse
+	// parameter-block template to a pull request description when it is opened.
+	// It is a repository-wide behaviour, not a per-command default, so it lives at
+	// the top level. Off by default: an existing repository is never edited
+	// silently.
+	AnnotatePR bool `yaml:"annotate_pr"`
 }
 
 // Defaults holds values applied to every command that does not set them.
@@ -48,6 +55,7 @@ type Command struct {
 	OnComment     string            `yaml:"on_comment"`
 	OnLabel       string            `yaml:"on_label"`
 	OnMerge       *MergeTrigger     `yaml:"on_merge"`
+	OnTag         string            `yaml:"on_tag"`
 	AvailableIn   []string          `yaml:"available_in"`
 	MinPermission string            `yaml:"min_permission"`
 	AllowedUsers  []string          `yaml:"allowed_users"`
@@ -56,6 +64,12 @@ type Command struct {
 	Params        map[string]Param  `yaml:"params"`
 	Parameters    map[string]string `yaml:"parameters"`
 	Ack           *Ack              `yaml:"ack"`
+}
+
+// prTriggered reports whether the command has a trigger tied to a pull request
+// (as opposed to on_tag, which fires on a tag and carries no PR state).
+func (c Command) prTriggered() bool {
+	return c.OnComment != "" || c.OnLabel != "" || c.OnMerge != nil
 }
 
 // Param declares a command parameter and whether it must be supplied.

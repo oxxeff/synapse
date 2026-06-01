@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path"
 	"regexp"
 
 	"gopkg.in/yaml.v3"
@@ -43,11 +44,16 @@ func Parse(data []byte) (*Spec, error) {
 // carries resolved values.
 func (s *Spec) applyDefaults() {
 	for name, c := range s.Commands {
-		if len(c.AvailableIn) == 0 {
-			c.AvailableIn = s.Defaults.AvailableIn
-		}
-		if len(c.AvailableIn) == 0 {
-			c.AvailableIn = []string{stateOpen}
+		// available_in is a pull request state filter; a tag has no PR state, so a
+		// command triggered only by a tag is left without it (matching skips the
+		// filter for tag events). Default it only when a PR trigger is present.
+		if c.prTriggered() {
+			if len(c.AvailableIn) == 0 {
+				c.AvailableIn = s.Defaults.AvailableIn
+			}
+			if len(c.AvailableIn) == 0 {
+				c.AvailableIn = []string{stateOpen}
+			}
 		}
 
 		// min_permission is not defaulted to write here: the contract applies that
@@ -91,8 +97,13 @@ func (s *Spec) validate() error {
 		if c.Job == "" {
 			return fmt.Errorf("command %q: job must not be empty", name)
 		}
-		if c.OnComment == "" && c.OnLabel == "" && c.OnMerge == nil {
-			return fmt.Errorf("command %q: must declare at least one of on_comment, on_label, on_merge", name)
+		if !c.prTriggered() && c.OnTag == "" {
+			return fmt.Errorf("command %q: must declare at least one of on_comment, on_label, on_merge, on_tag", name)
+		}
+		if c.OnTag != "" {
+			if _, err := path.Match(c.OnTag, ""); err != nil {
+				return fmt.Errorf("command %q: on_tag %q is not a valid pattern: %w", name, c.OnTag, err)
+			}
 		}
 		if err := validateAvailableIn(c.AvailableIn, "command "+name); err != nil {
 			return err

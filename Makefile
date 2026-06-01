@@ -15,8 +15,9 @@ GOLANGCI ?= golangci-lint
 export GOFLAGS ?= -buildvcs=false
 
 # Build identity is injected into the binary via ldflags of the version package.
-# BUILD is the CI build number (Jenkins provides BUILD_NUMBER); 0 locally.
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+# VERSION is the human-managed source of truth (root VERSION file); a release tag
+# must match it. BUILD is the CI build number (Jenkins provides BUILD_NUMBER); 0 locally.
+VERSION ?= $(shell cat $(CURDIR)/VERSION 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 BUILD   ?= $(or $(BUILD_NUMBER),0)

@@ -10,6 +10,15 @@ versioning follows [Semantic Versioning](https://semver.org/).
 
 Changes for the next release land here.
 
+## [0.2.0] - 2026-06-01
+
+Event routing beyond pull request comments: Synapse now reacts to tag creation
+(`on_tag`) and seeds a freshly opened pull request with a parameter-block template
+(opt-in `annotate_pr`). The `.synapse.yaml` contract stays version `1` and
+backward compatible.
+
+[Details](docs/changelog/0.2.0.md)
+
 ## [0.1.0] - 2026-06-01
 
 First release: a declarative webhook router from Gitea to Jenkins. It routes pull

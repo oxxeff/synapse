@@ -14,6 +14,7 @@ type capture struct {
 	ref         string
 	commentBody string
 	reaction    string
+	prBody      string
 }
 
 func newMethodsServer(t *testing.T, cap *capture) *httptest.Server {
@@ -65,6 +66,17 @@ func newMethodsServer(t *testing.T, cap *capture) *httptest.Server {
 		writeJSON(t, w, http.StatusCreated, `{"id":1}`)
 	})
 
+	mux.HandleFunc("PATCH /api/v1/repos/{owner}/{repo}/pulls/{number}", func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Body string `json:"body"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Errorf("decode pr body: %v", err)
+		}
+		cap.prBody = payload.Body
+		writeJSON(t, w, http.StatusOK, `{"number":12}`)
+	})
+
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
@@ -89,6 +101,20 @@ func TestReadFile(t *testing.T) {
 	}
 	if cap.ref != "dev" {
 		t.Errorf("ref query = %q, want dev", cap.ref)
+	}
+}
+
+func TestUpdatePRBody(t *testing.T) {
+	t.Parallel()
+
+	var cap capture
+	c := New(newMethodsServer(t, &cap).URL, "tok")
+
+	if err := c.UpdatePRBody(context.Background(), "acme", "app", 12, "new body"); err != nil {
+		t.Fatalf("UpdatePRBody: %v", err)
+	}
+	if cap.prBody != "new body" {
+		t.Errorf("pr body = %q, want %q", cap.prBody, "new body")
 	}
 }
 

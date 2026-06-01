@@ -23,6 +23,8 @@ const (
 	KindComment     Kind = "comment"
 	KindLabel       Kind = "label"
 	KindMerge       Kind = "merge"
+	KindTag         Kind = "tag"
+	KindPROpened    Kind = "pr_opened"
 )
 
 // PRState is the pull request state a command's available_in is matched against.
@@ -42,10 +44,12 @@ type Event struct {
 	State     PRState
 	Repo      Repo
 	PR        PR
-	Sender    string   // login of the event initiator (sender.login)
+	Sender    string   // login of the event initiator (sender.login); for a tag, the pusher
 	Comment   string   // comment body, set when Kind is KindComment
 	CommentID int64    // id of the triggering comment, set when Kind is KindComment
 	Labels    []string // current PR labels, set when Kind is KindLabel
+	Tag       string   // tag name, set when Kind is KindTag
+	TagCommit string   // commit SHA the tag points to, set when Kind is KindTag
 }
 
 // Repo identifies the repository the event originates from.
@@ -76,6 +80,8 @@ func Parse(eventType string, body []byte) (Event, error) {
 		return parseIssueComment(body)
 	case "pull_request":
 		return parsePullRequest(body)
+	case "create":
+		return parseCreate(body)
 	default:
 		return Event{Kind: KindUnsupported}, nil
 	}
@@ -185,6 +191,16 @@ func parsePullRequest(body []byte) (Event, error) {
 	}
 
 	switch {
+	case p.Action == "opened":
+		return Event{
+			Kind:   KindPROpened,
+			State:  StateOpen,
+			Repo:   p.Repository.repo(),
+			PR:     pr,
+			Sender: p.Sender.Login,
+			Labels: labels,
+		}, nil
+
 	case p.Action == "label_updated":
 		return Event{
 			Kind:   KindLabel,
@@ -210,6 +226,37 @@ func parsePullRequest(body []byte) (Event, error) {
 	default:
 		return Event{Kind: KindUnsupported}, nil
 	}
+}
+
+// createPayload is the Gitea "create" delivery, sent when a branch or tag is
+// created. Only tag creations route, so ref_type discriminates them from
+// branches; ref is the tag name and sha the commit it points to.
+type createPayload struct {
+	RefType    string    `json:"ref_type"`
+	Ref        string    `json:"ref"`
+	SHA        string    `json:"sha"`
+	Repository giteaRepo `json:"repository"`
+	Sender     giteaUser `json:"sender"`
+}
+
+func parseCreate(body []byte) (Event, error) {
+	var p createPayload
+	if err := json.Unmarshal(body, &p); err != nil {
+		return Event{}, fmt.Errorf("parse create payload: %w", err)
+	}
+
+	// A branch creation carries no routable trigger; only tags do.
+	if p.RefType != "tag" {
+		return Event{Kind: KindUnsupported}, nil
+	}
+
+	return Event{
+		Kind:      KindTag,
+		Repo:      p.Repository.repo(),
+		Sender:    p.Sender.Login,
+		Tag:       p.Ref,
+		TagCommit: p.SHA,
+	}, nil
 }
 
 func stateFromMerged(merged bool) PRState {

@@ -60,9 +60,24 @@ func TestParse(t *testing.T) {
 
 	const prOpened = `{
 		"action": "opened",
-		"pull_request": {"number": 17, "merged": false},
+		"pull_request": {"number": 17, "title": "New", "body": "desc", "merged": false},
 		"repository": {"name": "app", "full_name": "acme/app", "owner": {"login": "acme"}},
 		"sender": {"login": "grace"}
+	}`
+
+	const tagCreated = `{
+		"ref_type": "tag",
+		"ref": "v1.2.3",
+		"sha": "deadbeef",
+		"repository": {"name": "app", "full_name": "acme/app", "owner": {"login": "acme"}},
+		"sender": {"login": "heidi"}
+	}`
+
+	const branchCreated = `{
+		"ref_type": "branch",
+		"ref": "feature",
+		"repository": {"name": "app", "full_name": "acme/app", "owner": {"login": "acme"}},
+		"sender": {"login": "ivan"}
 	}`
 
 	tests := []struct {
@@ -128,7 +143,27 @@ func TestParse(t *testing.T) {
 			name: "closed without merge", eventType: "pull_request", body: closedNotMerged, wantKind: KindUnsupported,
 		},
 		{
-			name: "pr opened", eventType: "pull_request", body: prOpened, wantKind: KindUnsupported,
+			name: "pr opened", eventType: "pull_request", body: prOpened, wantKind: KindPROpened,
+			check: func(t *testing.T, e Event) {
+				t.Helper()
+				assertState(t, e.State, StateOpen)
+				assertInt(t, "pr.number", e.PR.Number, 17)
+				assertStr(t, "pr.body", e.PR.Body, "desc")
+				assertStr(t, "sender", e.Sender, "grace")
+			},
+		},
+		{
+			name: "tag created", eventType: "create", body: tagCreated, wantKind: KindTag,
+			check: func(t *testing.T, e Event) {
+				t.Helper()
+				assertStr(t, "tag", e.Tag, "v1.2.3")
+				assertStr(t, "tag.commit", e.TagCommit, "deadbeef")
+				assertStr(t, "repo.full_name", e.Repo.FullName, "acme/app")
+				assertStr(t, "sender", e.Sender, "heidi")
+			},
+		},
+		{
+			name: "branch created", eventType: "create", body: branchCreated, wantKind: KindUnsupported,
 		},
 		{
 			name: "unknown event", eventType: "push", body: `{}`, wantKind: KindUnsupported,

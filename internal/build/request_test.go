@@ -57,6 +57,54 @@ func TestRequest(t *testing.T) {
 	}
 }
 
+func TestRequestTag(t *testing.T) {
+	t.Parallel()
+
+	cmd := contract.Command{
+		Job:   "infra/git-sync",
+		OnTag: "v*",
+		Parameters: map[string]string{
+			"REVISION": "{{ tag.commit }}",
+			"REPO":     "{{ repo.full_name }}",
+		},
+	}
+	evt := webhook.Event{
+		Kind:      webhook.KindTag,
+		Repo:      webhook.Repo{Owner: "acme", Name: "app", FullName: "acme/app"},
+		Sender:    "alice",
+		Tag:       "v1.2.3",
+		TagCommit: "deadbeef",
+	}
+
+	target, params, err := Request("deliver", cmd, evt)
+	if err != nil {
+		t.Fatalf("Request: %v", err)
+	}
+
+	if target != "infra/git-sync" {
+		t.Errorf("target = %q, want infra/git-sync", target)
+	}
+
+	want := map[string]string{
+		"REVISION":           "deadbeef",
+		"REPO":               "acme/app",
+		"SYNAPSE_REPO":       "acme/app",
+		"SYNAPSE_TAG":        "v1.2.3",
+		"SYNAPSE_TAG_COMMIT": "deadbeef",
+		"SYNAPSE_EVENT":      "tag",
+	}
+	for k, v := range want {
+		if params[k] != v {
+			t.Errorf("param %q = %q, want %q", k, params[k], v)
+		}
+	}
+
+	// A tag has no pull request, so the PR-scoped context must be absent.
+	if _, ok := params["SYNAPSE_PR"]; ok {
+		t.Error("SYNAPSE_PR should be absent for a tag event")
+	}
+}
+
 func TestRequestUnknownVariable(t *testing.T) {
 	t.Parallel()
 

@@ -93,6 +93,34 @@ commands:
 	}
 }
 
+func TestParseTagCommand(t *testing.T) {
+	t.Parallel()
+
+	// A tag-only command needs no available_in (PR states do not apply to tags),
+	// so it must not be defaulted to one.
+	const c = `
+version: "1"
+defaults:
+  available_in: [pr_merged]
+commands:
+  deliver:
+    on_tag: "v*"
+    job: "infra/git-sync"
+`
+	spec, err := Parse([]byte(c))
+	if err != nil {
+		t.Fatalf("Parse: unexpected error %v", err)
+	}
+
+	deliver := spec.Commands["deliver"]
+	if deliver.OnTag != "v*" {
+		t.Errorf("on_tag = %q, want v*", deliver.OnTag)
+	}
+	if len(deliver.AvailableIn) != 0 {
+		t.Errorf("available_in = %v, want empty for a tag-only command", deliver.AvailableIn)
+	}
+}
+
 func TestParseUnsupportedVersion(t *testing.T) {
 	t.Parallel()
 
@@ -193,6 +221,13 @@ version: "1"
 commands:
   x:
     on_merge: [1, 2]
+    job: j
+`},
+		{name: "bad on_tag pattern", body: `
+version: "1"
+commands:
+  x:
+    on_tag: "[bad"
     job: j
 `},
 	}

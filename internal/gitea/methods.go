@@ -98,6 +98,24 @@ func (c *Client) CreateReaction(ctx context.Context, owner, repo string, comment
 	}
 }
 
+// UpdatePRBody replaces the description (body) of pull request number in
+// owner/repo from the bot account. It is used to seed the synapse parameter block
+// when a pull request is opened.
+func (c *Client) UpdatePRBody(ctx context.Context, owner, repo string, number int, body string) error {
+	endpoint := fmt.Sprintf("/api/v1/repos/%s/%s/pulls/%d",
+		url.PathEscape(owner), url.PathEscape(repo), number)
+
+	status, _, err := c.send(ctx, http.MethodPatch, endpoint, map[string]string{"body": body})
+	if err != nil {
+		return err
+	}
+	if status != http.StatusCreated && status != http.StatusOK {
+		return fmt.Errorf("gitea edit pull request %s/%s#%d: unexpected status %d", owner, repo, number, status)
+	}
+
+	return nil
+}
+
 // CurrentUser returns the login of the account the token authenticates as, used
 // to recognise and ignore the service's own events.
 func (c *Client) CurrentUser(ctx context.Context) (string, error) {

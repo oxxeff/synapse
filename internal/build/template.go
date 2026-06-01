@@ -50,6 +50,8 @@ func templateContext(evt webhook.Event, params map[string]string) map[string]str
 		"pr.head_ref":     evt.PR.HeadRef,
 		"pr.base_ref":     evt.PR.BaseRef,
 		"pr.merge_commit": evt.PR.MergeCommit,
+		"tag.name":        evt.Tag,
+		"tag.commit":      evt.TagCommit,
 		"sender.login":    evt.Sender,
 	}
 
@@ -64,6 +66,17 @@ func templateContext(evt webhook.Event, params map[string]string) map[string]str
 // executor, so a job (and its fallback reporting) knows which PR it serves. The
 // prefix separates this service context from the command's own parameters.
 func synapseContext(evt webhook.Event) map[string]string {
+	// A tag event has no pull request, so the PR-scoped context does not apply;
+	// the executor gets the tag identity instead.
+	if evt.Kind == webhook.KindTag {
+		return map[string]string{
+			"SYNAPSE_REPO":       evt.Repo.FullName,
+			"SYNAPSE_TAG":        evt.Tag,
+			"SYNAPSE_TAG_COMMIT": evt.TagCommit,
+			"SYNAPSE_EVENT":      string(evt.Kind),
+		}
+	}
+
 	ctx := map[string]string{
 		"SYNAPSE_REPO":    evt.Repo.FullName,
 		"SYNAPSE_PR":      strconv.Itoa(evt.PR.Number),

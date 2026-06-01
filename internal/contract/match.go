@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"path"
 	"slices"
 	"sort"
 	"strings"
@@ -21,7 +22,9 @@ func (s *Spec) Match(evt webhook.Event) []Match {
 	var matches []Match
 
 	for name, c := range s.Commands {
-		if !availableIn(c.AvailableIn, evt.State) {
+		// A tag carries no pull request state, so available_in (a PR-state filter)
+		// does not apply to it; only the trigger gates a tag event.
+		if evt.Kind != webhook.KindTag && !availableIn(c.AvailableIn, evt.State) {
 			continue
 		}
 		if !c.triggeredBy(evt) {
@@ -45,9 +48,20 @@ func (c Command) triggeredBy(evt webhook.Event) bool {
 	case webhook.KindMerge:
 		return c.OnMerge != nil && c.OnMerge.Enabled &&
 			(c.OnMerge.Label == "" || slices.Contains(evt.Labels, c.OnMerge.Label))
+	case webhook.KindTag:
+		return c.OnTag != "" && tagMatches(evt.Tag, c.OnTag)
 	default:
 		return false
 	}
+}
+
+// tagMatches reports whether a tag name satisfies the command's glob pattern (for
+// example "v*"). The pattern is validated at parse time, so a malformed one here
+// simply does not match.
+func tagMatches(tag, pattern string) bool {
+	ok, err := path.Match(pattern, tag)
+
+	return err == nil && ok
 }
 
 // commentMatches reports whether a comment body invokes key. The key must appear

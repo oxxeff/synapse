@@ -28,6 +28,7 @@ type fakeGitea struct {
 	readRef   string
 	comments  []string
 	reactions []string
+	prBodies  []string
 }
 
 func (f *fakeGitea) ReadFile(_ context.Context, _, _, _, ref string) ([]byte, bool, error) {
@@ -57,6 +58,14 @@ func (f *fakeGitea) CreateReaction(_ context.Context, _, _ string, _ int64, reac
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.reactions = append(f.reactions, reaction)
+
+	return nil
+}
+
+func (f *fakeGitea) UpdatePRBody(_ context.Context, _, _ string, _ int, body string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.prBodies = append(f.prBodies, body)
 
 	return nil
 }
@@ -249,6 +258,118 @@ func TestHandleReadsDefaultBranch(t *testing.T) {
 	}
 	if exec.lastParams["SYNAPSE_REPO"] != "acme/app" {
 		t.Errorf("SYNAPSE_REPO = %q, want acme/app", exec.lastParams["SYNAPSE_REPO"])
+	}
+}
+
+func TestHandleTag(t *testing.T) {
+	t.Parallel()
+
+	const tagContract = `
+version: "1"
+commands:
+  deliver:
+    on_tag: "v*"
+    job: "infra/git-sync"
+    parameters:
+      REVISION: "{{ tag.commit }}"
+`
+	g := fakeGitea{contract: tagContract, contractFound: true, perm: "write"}
+	exec := fakeExecutor{}
+	r := testRouter(&g, &exec)
+
+	evt := webhook.Event{
+		Kind:      webhook.KindTag,
+		Repo:      webhook.Repo{Owner: "acme", Name: "app", FullName: "acme/app"},
+		Sender:    "alice",
+		Tag:       "v1.0.0",
+		TagCommit: "abc123",
+	}
+	r.Handle(context.Background(), evt)
+
+	if exec.triggered != 1 {
+		t.Errorf("triggered = %d, want 1", exec.triggered)
+	}
+	if exec.lastParams["REVISION"] != "abc123" {
+		t.Errorf("REVISION = %q, want abc123", exec.lastParams["REVISION"])
+	}
+	if exec.lastParams["SYNAPSE_TAG"] != "v1.0.0" {
+		t.Errorf("SYNAPSE_TAG = %q, want v1.0.0", exec.lastParams["SYNAPSE_TAG"])
+	}
+	// A tag has no pull request, so nothing is posted back.
+	if len(g.comments) != 0 {
+		t.Errorf("comments = %v, want none for a tag event", g.comments)
+	}
+	if len(g.reactions) != 0 {
+		t.Errorf("reactions = %v, want none for a tag event", g.reactions)
+	}
+}
+
+func openedEvent(body string) webhook.Event {
+	return webhook.Event{
+		Kind:   webhook.KindPROpened,
+		State:  webhook.StateOpen,
+		Repo:   webhook.Repo{Owner: "acme", Name: "app", FullName: "acme/app"},
+		PR:     webhook.PR{Number: 8, Body: body},
+		Sender: "alice",
+	}
+}
+
+func TestHandleAnnotate(t *testing.T) {
+	t.Parallel()
+
+	const annotateOn = `
+version: "1"
+annotate_pr: true
+commands:
+  sync-github:
+    on_merge: true
+    available_in: [pr_merged]
+    job: "j"
+    params:
+      message:
+        required: false
+        default: ""
+`
+	const annotateOff = `
+version: "1"
+commands:
+  sync-github:
+    on_merge: true
+    available_in: [pr_merged]
+    job: "j"
+    params:
+      message:
+        required: false
+        default: ""
+`
+
+	tests := []struct {
+		name        string
+		contract    string
+		body        string
+		wantUpdates int
+	}{
+		{name: "opt-in empty body appends block", contract: annotateOn, body: "", wantUpdates: 1},
+		{name: "idempotent when block present", contract: annotateOn, body: "desc\n```synapse\nsync-github:\n  message: \"x\"\n```", wantUpdates: 0},
+		{name: "off by default", contract: annotateOff, body: "", wantUpdates: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			g := &fakeGitea{contract: tt.contract, contractFound: true}
+			r := testRouter(g, &fakeExecutor{})
+
+			r.Handle(context.Background(), openedEvent(tt.body))
+
+			if len(g.prBodies) != tt.wantUpdates {
+				t.Fatalf("pr body updates = %d, want %d", len(g.prBodies), tt.wantUpdates)
+			}
+			if tt.wantUpdates == 1 && !strings.Contains(g.prBodies[0], "```synapse") {
+				t.Errorf("updated body has no synapse block: %q", g.prBodies[0])
+			}
+		})
 	}
 }
 

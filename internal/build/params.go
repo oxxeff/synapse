@@ -106,6 +106,53 @@ func parsePRBlock(body, name string) (map[string]string, error) {
 	return map[string]string{}, nil
 }
 
+// HasSynapseBlock reports whether body already contains a fenced synapse block.
+// It is used to keep description annotation idempotent: a body that already has a
+// block is left untouched.
+func HasSynapseBlock(body string) bool {
+	return synapseBlock(body) != ""
+}
+
+// AnnotationBlock renders the fenced synapse block that seeds a pull request
+// description: one entry per command that has configurable params, each param on
+// its own line with its declared default (empty when none). It returns an empty
+// string when no command exposes a param, so the caller can skip annotating.
+//
+// The output is the same shape parsePRBlock reads back, so an author edits values
+// in place. Commands and params are emitted in sorted order for a stable result.
+func AnnotationBlock(spec *contract.Spec) string {
+	names := make([]string, 0, len(spec.Commands))
+	for name, cmd := range spec.Commands {
+		if len(cmd.Params) > 0 {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	sort.Strings(names)
+
+	var b strings.Builder
+	b.WriteString("```synapse\n")
+	for _, name := range names {
+		fmt.Fprintf(&b, "%s:\n", name)
+
+		params := spec.Commands[name].Params
+		keys := make([]string, 0, len(params))
+		for p := range params {
+			keys = append(keys, p)
+		}
+		sort.Strings(keys)
+
+		for _, p := range keys {
+			fmt.Fprintf(&b, "  %s: %q\n", p, params[p].Default)
+		}
+	}
+	b.WriteString("```")
+
+	return b.String()
+}
+
 // synapseBlock returns the contents between the first ```synapse fence and the
 // next closing ``` fence in body, or an empty string when absent.
 func synapseBlock(body string) string {
