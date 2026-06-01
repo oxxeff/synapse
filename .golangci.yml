@@ -1,0 +1,48 @@
+# Single point of code control. Suppressions only via //nolint:<name> // <reason>
+# on the same line. Changing the linter set goes through an ADR.
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gofumpt
+    - goimports
+    - misspell
+    - revive
+    - nilerr
+    - nilnil
+    - bodyclose
+    - errorlint
+    - gocritic
+    - unconvert
+    - unparam
+    - wastedassign
+
+linters-settings:
+  goimports:
+    # Import order: stdlib, third-party, project. Project section keyed by the module prefix.
+    local-prefixes: go.oxef.dev/ci/synapse
+  gofumpt:
+    extra-rules: true
+  govet:
+    enable-all: true
+    # fieldalignment is noisy for a micro memory win - not on the hot path.
+    disable:
+      - fieldalignment
+  errcheck:
+    check-type-assertions: true
+  revive:
+    rules:
+      - name: exported
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

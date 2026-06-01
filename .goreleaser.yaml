@@ -1,0 +1,71 @@
+version: 2
+
+builds:
+  - id: synapse
+    main: ./cmd/synapse
+    binary: synapse
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+    flags:
+      - -trimpath
+      - -buildvcs=false
+    ldflags:
+      - -s -w
+      - -X 'go.oxef.dev/ci/synapse/internal/version.Version={{.Version}}'
+      - -X 'go.oxef.dev/ci/synapse/internal/version.Commit={{.ShortCommit}}'
+      - -X 'go.oxef.dev/ci/synapse/internal/version.Date={{.Date}}'
+      - -X 'go.oxef.dev/ci/synapse/internal/version.Build={{ .Env.BUILD }}'
+
+archives:
+  - id: synapse
+    formats: ['tar.gz']
+
+dockers_v2:
+  # Minimal scratch image for production. latest and stable track the newest
+  # non-prerelease; a release candidate gets only its version tag.
+  - id: scratch
+    images:
+      - ghcr.io/oxxeff/synapse
+    tags:
+      - "{{ .Tag }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+      - "{{ if not .Prerelease }}stable{{ end }}"
+    dockerfile: Dockerfile
+    platforms:
+      - linux/amd64
+    sbom: false
+  # Ubuntu-based image for debugging (a shell and tools are available).
+  - id: ubuntu
+    images:
+      - ghcr.io/oxxeff/synapse
+    tags:
+      - "{{ .Tag }}-ubuntu"
+      - "{{ if not .Prerelease }}latest-ubuntu{{ end }}"
+    dockerfile: Dockerfile.ubuntu
+    platforms:
+      - linux/amd64
+    sbom: false
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  # Re-pushing the same tag (e.g. delete and re-create v0.1.0) recreates the
+  # release: mode replace overwrites the release notes, replace_existing_artifacts
+  # removes already-uploaded artifacts (HTTP 422) and uploads them again. The image
+  # in ghcr is overwritten by a normal push of the same tag.
+  mode: replace
+  replace_existing_artifacts: true
+  # auto flags the release as a pre-release when the tag carries an indicator (e.g. v0.1.0-rc1).
+  prerelease: auto
+  footer: |
+    **This release:** [docs/changelog/{{ .Version }}.md](https://github.com/oxxeff/synapse/blob/{{ .Tag }}/docs/changelog/{{ .Version }}.md)
+
+    **All releases:** [CHANGELOG.md](https://github.com/oxxeff/synapse/blob/{{ .Tag }}/CHANGELOG.md)
+
+changelog:
+  use: github-native

@@ -1,0 +1,26 @@
+# Build artifacts
+/dist/
+/build/
+*.log
+
+# Local environment
+.env
+.env.local
+*.local
+
+# Editors
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+
+# Go
+/vendor/
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# Test corpora and captures (pulled from the artifact store, not kept in git)
+/testdata/corpus/
+/dist/captures/
